@@ -1,0 +1,116 @@
+---
+title: "Practical Machine Learning - Final Project"
+author: "Mark Fischer"
+date: "June 25, 2016"
+output: html_document
+keep_md: yes
+geometry: margin=1.2cm
+---
+## Synopsis
+Using wireless sensors, data can be taken for enumurable activities.  Utilizing a dataset from <http://groupware.les.inf.puc-rio.br/har>, we are tasked with determining the best model to fit the available data.  The final model will be used to predict the outcomes of 20 different situations.
+
+## Submission
+I will submit a written report outlining the process, and results.  A table included at the end of the report gives the final model's predictions for the 20 samples in the testing set.
+
+```{r, echo = FALSE}
+options(repos=c(CRAN='http://cran.us.r-project.org'))
+# load packages
+# install.packages("knitr")
+# install.packages("caret", dependencies = c("Depends", "Suggests"))
+# install.packages("rpart")
+# install.packages("broom")
+# install.packages("data.table")
+suppressMessages(library(knitr))
+suppressMessages(library(caret))
+suppressMessages(library(rpart))
+suppressMessages(library(broom))
+suppressMessages(library(data.table))
+suppressMessages(library(dplyr))
+set.seed(4578)
+```
+
+## Getting Data
+Training and Testing datasets were checked in the current working directory and downloaded if they do not exist. Data was read into the directory utilizing the `fread` function from the `data.table` package.
+
+```{r, results = 'asis', echo = FALSE}
+training_url  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_url   <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training_file <- "pml-training.csv"
+testing_file  <- "pml-testing.csv"
+
+# Download files if they don't exist
+ if (!file.exists(training_file)) {
+    download.file(training_url,training_file,method="curl") }
+ if (!file.exists(testing_file)) {
+    download.file(testing_url,testing_file,method="curl") }
+
+train_full <- fread("pml-training.csv")
+test_full  <- fread("pml-testing.csv")
+train_full <- as.data.frame(train_full)
+test_full  <- as.data.frame(test_full)
+```
+
+## Cleaning Data
+After downloading the train dataset, a review reveals either empty or sparsely filled columns. I utilize `is.na` to look for any columns with missing data and remove them.  I also remove the first 7 columns which don't include any data relevant to machine learning algorithms.
+To further refine the data available to the machine learning algorithms, I look for covariate variables utilizing the `findCorrelation` function available through the `caret` package. Based on the correlation matrix columns, `accel_belt_z`, `roll_belt`, `accel_belt_y`, `accel_belt_x`, and `gyros_arm_x` were removed from the final data frame.  The train and test data partitions are created from the final train_full data frame.  The model creation will be carried out with the following columns remaining in the dataset.
+
+```{r, results = 'asis'}
+inTrain    <- createDataPartition(train_full$classe, p=0.8, list = FALSE)
+training   <- train_full[inTrain,]
+testing    <- train_full[-inTrain,]
+
+# Identify columns that are sparsely populated or all zeros
+s_z_cols   <- sapply(training, function (x) any(is.na(x) | x == ""))
+training   <- subset(training, select = colnames(training)[which(!s_z_cols)])
+testing    <- subset(testing, select = colnames(testing)[which(!s_z_cols)])
+test_full  <- subset(test_full, select = colnames(test_full)[which(!s_z_cols)])
+
+#remove first seven columns
+training   <- training[, -(1:7)]
+testing    <- testing[, -(1:7)]
+test_full  <- test_full[, -(1:7)]
+
+## Look for covariate variables and remove.  Only send the first 52 columns, skip the classe column
+cor_train <- subset(training, select = names(training)[1:52])
+cols_cor  <- findCorrelation(abs(cor(cor_train)),0.90)
+training  <- training[, -cols_cor]
+testing   <- testing[, -cols_cor]
+test_full <- test_full[, -cols_cor]
+
+print(colnames(training))
+```
+
+## Preliminary Model Creation
+To start the evaluation I create three models based on algorithms best suited to a non-linear multi-variable evaluation.  The inital three models will be created utilizing methods `gbm` (Gradient Boosted Machine), `rpart` (Decision Tree), and `rf` (Random Forest).  The models will be implemented with all default settings with no cross validation or pre-processing.  This effort will be saved to further refine the final model method.
+
+```{r, results='asis', echo = FALSE, results = 'hide'}
+mod_GBM   <- train(classe ~ ., method = "gbm", data = training)
+mod_RPART <- train(classe ~ ., method = "rpart", data = training)
+mod_RF    <- train(classe ~ ., method = "rf", trControl=trainControl(method ="repeatedcv",number = 4,repeats = 4),data = training)
+
+fit_GBM   <- predict(mod_GBM, newdata = testing, n.trees = 150)
+fit_RPART <- predict(mod_RPART, newdata = testing)
+fit_RF    <- predict(mod_RF, newdata = testing)
+
+cm_nested <- data.frame( "GBM" = round(confusionMatrix(fit_GBM, testing$classe)$overall, digits = 5), 
+                       "RPART" = round(confusionMatrix(fit_RPART, testing$classe)$overall, digits = 5),
+                       "RF" = round(confusionMatrix(fit_RF, testing$classe)$overall, digits = 5))
+```
+
+```{r}
+knitr::kable(cm_nested,align = 'c', digits = 5, caption = "Confusion Matrix Summary for GBM, RPART, and RF")
+```
+
+## Final Model Testing
+From the comparison of the previous models the `rf` option attained the best accuracy with cross validation.  I will use the `rf` model for the final fit.
+
+```{r, results='asis', echo = FALSE}
+
+fit_final <- predict(fit_RF, newdata = test_final)
+
+FinalPredictionResults <- data.frame(
+  problem_id=test_final$problem_id,
+  predicted=fit_final
+)
+print(FinalPredictionResults)
+```
