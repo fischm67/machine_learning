@@ -81,9 +81,9 @@ print(colnames(training))
 ```
 
 ## Preliminary Model Creation
-To start the evaluation I create three models based on algorithms best suited to a non-linear multi-variable evaluation.  The inital three models will be created utilizing methods `gbm` (Gradient Boosted Machine), `rpart` (Decision Tree), and `rf` (Random Forest).  The models will be implemented with all default settings with no cross validation or pre-processing.  This effort will be saved to further refine the final model method.
+To start the evaluation I create three models based on algorithms best suited to a non-linear multi-variable evaluation.  The inital three models will be created utilizing methods `gbm` (Gradient Boosted Machine), `rpart` (Decision Tree), and `rf` (Random Forest) with cross validation.
 
-```{r, results='asis', echo = FALSE, results = 'hide'}
+```{r, results='hide', echo = FALSE}
 mod_GBM   <- train(classe ~ ., method = "gbm", data = training)
 mod_RPART <- train(classe ~ ., method = "rpart", data = training)
 mod_RF    <- train(classe ~ ., method = "rf", trControl=trainControl(method ="repeatedcv",number = 4,repeats = 4),data = training)
@@ -97,8 +97,11 @@ cm_nested <- data.frame( "GBM" = round(confusionMatrix(fit_GBM, testing$classe)$
                        "RF" = round(confusionMatrix(fit_RF, testing$classe)$overall, digits = 5))
 ```
 
-```{r}
+```{r, results='asis', echo = FALSE}
 knitr::kable(cm_nested,align = 'c', digits = 5, caption = "Confusion Matrix Summary for GBM, RPART, and RF")
+
+out_sample <- 1 - (sum(fit_RF == testing$classe)/length(fit_RF))
+paste0("The out of sample error rate for the final rf based model is: ", round(out_sample, digits = 2), "%")
 ```
 
 ## Final Model Testing
@@ -106,10 +109,10 @@ From the comparison of the previous models the `rf` option attained the best acc
 
 ```{r, results='asis', echo = FALSE}
 
-fit_final <- predict(fit_RF, newdata = test_final)
+fit_final <- predict(mod_RF, newdata = test_full[,1:45])
 
 FinalPredictionResults <- data.frame(
-  problem_id=test_final$problem_id,
+  problem_id=test_full$problem_id,
   predicted=fit_final
 )
 print(FinalPredictionResults)
